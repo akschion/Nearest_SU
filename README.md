@@ -1,8 +1,10 @@
 # On the Nearest Special Unitary Matrix
 
-Reference implementation for the paper **"On the Nearest Special Unitary Matrix"** by Akshay Chandrasekhar 🌐🔢🧮⚛️
+Reference implementation for the paper [**"On the Nearest Special Unitary Matrix"**](https://www.algorhythmandflow.com/research/nearest_su.pdf) by Akshay Chandrasekhar 🌐🔢🧮⚛️
 
 Computes the nearest $SU(n)$ matrix (in the Frobenius norm sense) to an arbitrary $n \times n$ complex matrix.
+
+For a simpler overview of the paper, see the [explainer site](https://akschion.github.io/Nearest_SU/).
 
 ## Methods
 
