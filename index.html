@@ -375,7 +375,7 @@ summary{cursor:pointer;font-weight:500;font-size:.95rem}
 
   <h3>Solving for the phases</h3>
   <p>From the constraints, we can find the exact solution by eliminating variables and solving for the roots of a
-    univariate polynomial. However, the polynomial's degree grows like \(2^{n-1}(n-1)\), making this approach
+    univariate polynomial. However, the polynomial's degree grows like \(2^{n - 2 + (n \bmod 2)}(n-1)\), making this approach
     numerically fragile past \(n = 4\). Alternatively, since a single scalar parameterizes all
     variables through our constraints, we can perform a one-dimensional root search on a bounded interval instead which avoids constructing the polynomial directly. This numerical approach is robust even for large \(n\).</p>
 
