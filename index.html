@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>The Nearest Special Unitary Matrix — Projecting onto SU(n)</title>
+<meta name="description" content="How to find the closest special unitary (SU(n)) matrix to any complex matrix under the Frobenius norm. Why the det = 1 constraint breaks the usual SVD trick, why common heuristics are suboptimal, and an exact + scalable solution. Paper and code by Akshay Chandrasekhar.">
+<meta name="author" content="Akshay Chandrasekhar">
+<meta name="keywords" content="special unitary matrix, SU(n) projection, matrix nearness, nearest unitary matrix, Frobenius norm, polar decomposition, SVD, quantum gates, manifold optimization, SU(2), quaternions">
+<link rel="canonical" href="https://akschion.github.io/Nearest_SU/">
+
+<!-- Open Graph / social -->
+<meta property="og:type" content="article">
+<meta property="og:title" content="The Nearest Special Unitary Matrix">
+<meta property="og:description" content="Projecting a complex matrix onto SU(n): why the determinant-one constraint is a continuous phase, not a sign flip — and how to solve it exactly.">
+<meta property="og:url" content="https://akschion.github.io/Nearest_SU/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="The Nearest Special Unitary Matrix">
+<meta name="twitter:description" content="Projecting a complex matrix onto SU(n), exactly. Paper, intuition, and code.">
+
+<!-- Structured data for search engines & AI crawlers -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "ScholarlyArticle",
+  "headline": "On the Nearest Special Unitary Matrix",
+  "author": { "@type": "Person", "name": "Akshay Chandrasekhar" },
+  "datePublished": "2026",
+  "abstract": "Derives the optimal solution for finding the nearest special unitary matrix to a general square complex matrix under the Frobenius norm, with an exact analytical characterization and a faster numerical method.",
+  "about": ["special unitary group", "matrix nearness problems", "Frobenius norm projection", "singular value decomposition", "quantum gate synthesis"],
+  "url": "https://akschion.github.io/Nearest_SU/",
+  "sameAs": ["https://github.com/akschion/Nearest_SU", "https://www.algorhythmandflow.com/research/nearest_su.pdf"],
+  "codeRepository": "https://github.com/akschion/Nearest_SU"
+}
+</script>
+
+<!-- Fonts: STIX Two (scientific publishing) + IBM Plex (technical body/mono) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400;1,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- KaTeX for math rendering -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]});"></script>
+
+<style>
+:root{
+  --paper:#f7f9fc;
+  --ink:#131a2a;
+  --muted:#5b6478;
+  --rule:#dfe5ee;
+  --blue:#1f4fd8;        /* optimal */
+  --blue-soft:#e8eefc;
+  --rose:#bf3978;        /* heuristic / comparison */
+  --rose-soft:#f9e9f1;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{
+  margin:0;color:var(--ink);
+  /* complex-plane lattice: faint dot grid over cool off-white */
+  background-color:var(--paper);
+  background-image:radial-gradient(circle, rgba(31,79,216,.075) 1px, rgba(31,79,216,0) 1.4px);
+  background-size:26px 26px;
+  font-family:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  font-size:17px;line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:740px;margin:0 auto;padding:0 22px}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid rgba(31,79,216,.25)}
+a:hover{border-bottom-color:var(--blue)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:3px;border-radius:2px}
+
+/* ---------- header / hero ---------- */
+header{padding:64px 0 52px}
+h1{
+  font-family:'STIX Two Text',Georgia,serif;font-style:italic;font-weight:400;
+  font-size:clamp(2.1rem,6vw,3.3rem);line-height:1.12;margin:0 0 18px;letter-spacing:-.01em;
+}
+h1 .su{font-style:normal;color:var(--blue)}
+.lede{font-size:1.07rem;color:var(--muted);max-width:60ch;margin:0 0 26px}
+.btns{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+.btn{
+  display:inline-block;padding:9px 18px;border-radius:6px;border:1px solid var(--ink);
+  font-size:.92rem;font-weight:500;color:var(--ink);
+}
+.btn:hover{background:var(--ink);color:var(--paper)}
+.btn.primary{background:var(--ink);color:var(--paper)}
+.btn.primary:hover{background:var(--blue);border-color:var(--blue)}
+.hero-flex{display:flex;gap:36px;align-items:center}
+.hero-text{flex:1 1 380px;min-width:0}
+.hero-fig{flex:0 0 230px}
+.hero-fig figcaption{font-family:var(--mono);font-size:.72rem;color:var(--muted);text-align:center;margin-top:6px}
+@media (max-width:680px){
+  header{padding-top:44px}
+  .hero-flex{flex-direction:column;align-items:flex-start}
+  .hero-fig{flex:none;width:200px;align-self:center}
+}
+
+/* ---------- sections ---------- */
+main section{padding:56px 0}
+h2{
+  font-family:'STIX Two Text',Georgia,serif;font-weight:600;font-style:normal;
+  font-size:1.65rem;line-height:1.25;margin:0 0 18px;
+}
+h3{font-size:1.05rem;font-weight:600;margin:30px 0 10px}
+p{margin:0 0 16px}
+strong{font-weight:600}
+.note{
+  border-left:3px solid var(--blue);background:var(--blue-soft);
+  padding:14px 18px;border-radius:0 6px 6px 0;margin:22px 0;font-size:.97rem;
+}
+.note p:last-child{margin:0}
+
+/* equations can overflow on phones */
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:4px 0}
+
+/* ---------- figures ---------- */
+figure{margin:28px 0}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:.85rem;color:var(--muted);margin-top:10px;line-height:1.5;text-align:center}
+.duo{display:flex;gap:20px}
+.duo > div{flex:1;min-width:0}
+.duo .lbl{font-family:var(--mono);font-size:.74rem;letter-spacing:.06em;text-transform:uppercase;text-align:center;margin-top:8px}
+.lbl.bad{color:var(--rose)} .lbl.good{color:var(--blue)}
+@media (max-width:560px){.duo{gap:10px}}
+
+/* ---------- tables ---------- */
+.tbl-scroll{overflow-x:auto;margin:22px 0}
+table{border-collapse:collapse;width:100%;font-size:.93rem}
+th,td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--rule);white-space:nowrap}
+th{font-family:var(--mono);font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;font-weight:500;color:var(--muted)}
+/* center every column except the first (headers included); keep math case as authored */
+td:not(:first-child),th:not(:first-child){text-align:center}
+.katex{text-transform:none}
+td.num{font-family:var(--mono);font-size:.88rem}
+tr.win td{background:var(--blue-soft);font-weight:500}
+/* 2x2 classification grid */
+table.grid2 td,table.grid2 th{border:1px solid var(--rule)}
+table.grid2 thead th:first-child,table.grid2 tbody th{background:transparent}
+table.grid2 td{padding:14px}
+table.grid2 .grp{display:block;font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;color:var(--muted);margin-bottom:7px}
+table.grid2 td.su{background:var(--blue-soft)}
+table.grid2 td.su .grp{color:var(--blue)}
+.tbl-cap{font-size:.85rem;color:var(--muted);line-height:1.5;margin:-10px 0 24px;text-align:center}
+
+/* ---------- code ---------- */
+pre{
+  background:#10182b;color:#dfe6f5;border-radius:8px;
+  padding:18px 20px;overflow-x:auto;font-family:var(--mono);
+  font-size:.86rem;line-height:1.6;margin:22px 0;
+}
+code{font-family:var(--mono);font-size:.9em}
+p code, li code{background:var(--blue-soft);padding:1px 5px;border-radius:4px}
+pre .c{color:#7c8aa5}
+pre .k{color:#8fb4ff}
+pre .s{color:#ffd9a0}
+
+details{margin:18px 0;border:1px solid var(--rule);border-radius:6px;padding:12px 16px}
+summary{cursor:pointer;font-weight:500;font-size:.95rem}
+
+/* ---------- references ---------- */
+#references pre{background:#f3f5f9;color:var(--ink);border:1px solid var(--rule)}
+
+/* phasor animation: elements are authored at their final positions; the
+   animation rotates them back to angle 0 and sweeps out. It runs only when a
+   containing figure has the .anim class (the hero has it at load; the
+   comparison figure receives it on scroll via a small script). If animations,
+   custom properties, transforms, or JS are unavailable (or reduced motion is
+   on), the static final positions render as-is. */
+.phasor{transform-box:view-box;transform-origin:var(--c,110px 110px)}
+@media (prefers-reduced-motion:no-preference){
+  .anim .phasor{animation:sweep .9s cubic-bezier(.25,.7,.3,1) backwards}
+  .anim .fade-in{animation:appear .5s ease 1.2s backwards}
+}
+@keyframes sweep{from{transform:rotate(var(--a0,0deg))}to{transform:rotate(0deg)}}
+@keyframes appear{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap hero-flex">
+    <div class="hero-text">
+      <h1>The Nearest <span class="su">Special Unitary</span> Matrix</h1>
+      <p class="lede">Given a complex square matrix, how do we find its nearest special unitary matrix? Unlike the orthogonal, special orthogonal, and unitary cases, there is no simple SVD-based formula. Instead, the problem requires a more involved optimization over phases on the unit circle. This page explains the problem, common pitfalls, and the optimal solution.</p>
+      <div class="btns">
+        <a class="btn primary" href="https://www.algorhythmandflow.com/research/nearest_su.pdf">Read the paper (PDF)</a>
+        <a class="btn" href="https://github.com/akschion/Nearest_SU">Code on GitHub</a>
+      </div>
+      <p style="font-size:.88rem;color:var(--muted);margin:10px 0 0">
+        <em>On the Nearest Special Unitary Matrix</em> — Akshay Chandrasekhar, 2026</p>
+    </div>
+    <figure class="hero-fig anim" aria-hidden="true">
+      <!-- unit circle with the optimal n=4 phases from the worked example (positive arg rho) -->
+      <svg viewBox="0 0 232 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Unit circle with four optimal phase angles sweeping out from angle zero">
+        <circle cx="110" cy="110" r="86" fill="none" stroke="#c9d2e4" stroke-width="1.5" stroke-dasharray="3 5"/>
+        <line x1="110" y1="110" x2="196" y2="110" stroke="#c9d2e4" stroke-width="1.5"/>
+        <!-- rho phasor sweeps out to +131.2deg -->
+        <g class="phasor" style="--a0:131.16deg;animation-delay:.3s">
+          <line x1="110" y1="110" x2="53.4" y2="45.3" stroke="#bf3978" stroke-width="1.5" opacity=".45"/>
+          <circle cx="53.4" cy="45.3" r="3" fill="#bf3978"/>
+        </g>
+        <!-- phase phasors sweep out to +11.18, +21.49, +36.36, +62.14 deg -->
+        <g class="phasor" style="--a0:11.18deg">
+          <line x1="110" y1="110" x2="194.4" y2="93.3" stroke="#1f4fd8" stroke-width="1.5" opacity=".45"/>
+          <circle cx="194.4" cy="93.3" r="5.5" fill="#1f4fd8"/>
+        </g>
+        <g class="phasor" style="--a0:21.49deg;animation-delay:.08s">
+          <line x1="110" y1="110" x2="190.0" y2="78.5" stroke="#1f4fd8" stroke-width="1.5" opacity=".45"/>
+          <circle cx="190.0" cy="78.5" r="5.5" fill="#1f4fd8"/>
+        </g>
+        <g class="phasor" style="--a0:36.36deg;animation-delay:.16s">
+          <line x1="110" y1="110" x2="179.3" y2="59.0" stroke="#1f4fd8" stroke-width="1.5" opacity=".45"/>
+          <circle cx="179.3" cy="59.0" r="5.5" fill="#1f4fd8"/>
+        </g>
+        <g class="phasor" style="--a0:62.14deg;animation-delay:.24s">
+          <line x1="110" y1="110" x2="150.2" y2="34.0" stroke="#1f4fd8" stroke-width="1.5" opacity=".45"/>
+          <circle cx="150.2" cy="34.0" r="5.5" fill="#1f4fd8"/>
+        </g>
+        <!-- annotations fade in after the sweep -->
+        <g class="fade-in">
+          <path d="M 152 110 A 42 42 0 0 0 82.4 78.4" fill="none" stroke="#bf3978" stroke-width="1.5"/>
+          <text x="42" y="38" font-family="IBM Plex Mono, monospace" font-size="10" fill="#bf3978">ρ</text>
+          <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#5b6478">
+            <text x="204" y="94">z<tspan font-size="7" dy="2">1</tspan></text>
+            <text x="199" y="73">z<tspan font-size="7" dy="2">2</tspan></text>
+            <text x="187" y="53">z<tspan font-size="7" dy="2">3</tspan></text>
+            <text x="155" y="25">z<tspan font-size="7" dy="2">4</tspan></text>
+          </g>
+        </g>
+      </svg>
+      <figcaption>Optimal phases from the n=4 example below</figcaption>
+    </figure>
+  </div>
+</header>
+
+<main>
+
+<section id="problem" class="wrap">
+  <h2>The problem</h2>
+  <p>Matrix nearness problems aim to find the closest member of a constrained set \(\mathcal S\) to given a matrix \(M\). Here the set is the <strong>special unitary
+  group</strong> \(SU(n)\), and the distance is the Frobenius norm:</p>
+  $$\min_{Q \in SU(n)} \|M - Q\|_F^2, \qquad SU(n) = \{\,Q \in \mathbb{C}^{n\times n} : Q^H Q = I,\ \det (Q) = 1\,\}$$
+  <p>This projection is needed whenever a computation or algorithm produces a matrix that <em>should</em> be
+    special unitary but isn't quite. For example, repeated floating-point multiplications can cause numerical drift away from \(SU(n)\), or a learning algorithm may return an estimate that doesn't exactly lie in the group. In both cases, we would wish to "correct" the matrix to the nearest valid matrix.</p>
+</section>
+
+<section id="why-hard" class="wrap">
+  <h2>Why it's harder than O(n), U(n), and SO(n)</h2>
+  <p>The classical analogues of this problem all have known one-line solutions built from the SVD
+  (\(M = U\Sigma V^H\) where \(\Sigma = \mathrm{diag}(\sigma_1,\dots,\sigma_n)\) with \(\sigma_1\geq \dots \geq\sigma_n)\). Although the special unitary solution takes a similar form, it additionally requires a nontrivial optimization over a set of variables \(\{z_i\}\).</p>
+  <div class="tbl-scroll">
+  <table class="grid2">
+    <thead><tr><th></th><th>no determinant constraint</th><th>det = 1</th></tr></thead>
+    <tbody>
+      <tr>
+        <th>real</th>
+        <td><span class="grp">Orthogonal \(O(n)\)</span>\(UV^{T}\)</td>
+        <td><span class="grp">Special Orthogonal \(SO(n)\)</span>\(U\,\mathrm{diag}(1,\dots,\det(UV^{T}))\,V^{T}\)</td>
+      </tr>
+      <tr>
+        <th>complex</th>
+        <td><span class="grp">Unitary \(U(n)\)</span>\(UV^{H}\)</td>
+        <td class="su"><span class="grp">Special Unitary \(SU(n)\)</span>\(U\,\mathrm{diag}(z_1^{*},\dots,z_n^{*})\,V^{H}\)</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="tbl-cap">The nearest matrix solution form for each constrained set.</p>
+  <p>In the real case, \(\det(Q) = \pm 1\), so enforcing \(\det(Q) = 1\) means at worst flipping
+    one singular direction, and the best choice is the one with the smallest singular value.
+    In the complex case, however, the determinant of a unitary matrix can be
+    any point on the unit circle (\(\det(Q) = e^{i\theta}\)), and the corrections to the singular directions take on a <em>continuous</em> set of values rather than a discrete sign flip. With this additional flexibility, the optimal total correction is distributed among <em>all</em> singular directions in a coupled way.</p>
+</section>
+
+<section id="heuristics" class="wrap">
+  <h2>Two suboptimal heuristics</h2>
+  <p>Here are two commonly used naive approaches to correct the matrix. Although the methods yield valid \(SU(n)\) matrices, they do not necessarily produce the <em>nearest</em> one.</p>
+  <h3>Naive I — global phase correction</h3>
+  <p>Take the nearest unitary matrix \(A = UV^H\) and scale it so that its determinant
+  becomes one: \(Q = \det(A)^{-1/n} A\). This spreads the phase correction evenly across all
+  directions.</p>
+  <h3>Naive II — \(SO(n)\) Analogue</h3>
+  <p>This is the exact analogue of the special orthogonal solution where the correction is applied entirely to the smallest singular value direction:
+  \(Q = U\,\mathrm{diag}(1,\dots,1,\rho^{*})\,V^H\). </p>
+  <p>The true solution lies in between: the phase correction should be shared across
+  directions, but not necessarily evenly.</p>
+</section>
+  
+<section id="solution" class="wrap">
+  <h2>The solution: distributing a phase budget</h2>
+  <p>Properly minimizing the Frobenius distance reveals that the optimal \(Q\) always has the form:</p>
+  $$Q = U Z^{*} V^{H}, \qquad Z = \mathrm{diag}(z_1,\dots,z_n),\quad |z_i| = 1$$
+  <p>and the matrix problem collapses to choosing \(n\) unit-modulus phases that maximize the constrained objective:</p>
+  $$\max_{|z_i|=1}\ 2\sum_{i=1}^{n}\sigma_i\,\Re(z_i)\quad \text{s.t.}\quad \prod_{i=1}^{n} z_i = \rho := \det(U)\det(V^{H})$$
+  <p>Think of \(n\) knobs on the unit circle. Each knob wants to sit at angle zero (where
+  \(\Re(z_i)\) is maximal), but their angles must sum to \(\arg\rho\), a fixed phase
+  budget that has to be distributed somehow. Turning the knob attached to a large \(\sigma_i\)
+  is expensive, while turning one attached to a small \(\sigma_i\) is relatively cheap.</p>
+  <p>The stationarity conditions specify the distribution rule exactly. Writing
+  \(a_i = \Re(z_i),b_i=\Im(z_i)\), every optimum satisfies:</p>
+  $$\sigma_i\, b_i = \sigma_j\, b_j \quad \text{for all } i,j$$
+  <p>Thus, the imaginary parts are all related to the ratio of
+  singular values. This provides enough constraints to solve for the optimal solution.</p>
+
+  <figure class="anim-on-view">
+    <div class="duo" aria-label="Comparison of heuristic and optimal phase placement">
+      <div>
+        <svg viewBox="0 0 252 200" xmlns="http://www.w3.org/2000/svg" style="--c:114px 100px" role="img" aria-label="Naive II: one phase absorbs the whole budget">
+          <circle cx="114" cy="100" r="74" fill="none" stroke="#c9d2e4" stroke-width="1.5" stroke-dasharray="3 5"/>
+          <line x1="114" y1="100" x2="188" y2="100" stroke="#c9d2e4" stroke-width="1.5"/>
+          <!-- three stay at 0 deg; one phasor sweeps out to +131.2 deg -->
+          <line x1="114" y1="100" x2="188" y2="100" stroke="#bf3978" stroke-width="1.5" opacity=".45"/>
+          <circle cx="188" cy="100" r="7" fill="#bf3978" opacity=".35"/>
+          <circle cx="188" cy="100" r="5" fill="#bf3978"/>
+          <g class="phasor" style="--a0:131.16deg">
+            <line x1="114" y1="100" x2="65.3" y2="44.3" stroke="#bf3978" stroke-width="1.5" opacity=".45"/>
+            <circle cx="65.3" cy="44.3" r="5.5" fill="#bf3978"/>
+          </g>
+          <g class="fade-in">
+            <text x="198" y="104" font-family="IBM Plex Mono, monospace" font-size="10" fill="#5b6478">z<tspan font-size="7" dy="2">1</tspan><tspan dy="-2">,z</tspan><tspan font-size="7" dy="2">2</tspan><tspan dy="-2">,z</tspan><tspan font-size="7" dy="2">3</tspan></text>
+            <text x="50" y="34" font-family="IBM Plex Mono, monospace" font-size="10" fill="#5b6478">z<tspan font-size="7" dy="2">4</tspan></text>
+            <text x="48" y="20" font-family="IBM Plex Mono, monospace" font-size="10" fill="#bf3978">+131°</text>
+          </g>
+        </svg>
+        <p class="lbl bad">Naive II</p>
+      </div>
+      <div>
+        <svg viewBox="0 0 252 200" xmlns="http://www.w3.org/2000/svg" style="--c:126px 100px" role="img" aria-label="Optimal: phases spread inversely to singular values">
+          <circle cx="126" cy="100" r="74" fill="none" stroke="#c9d2e4" stroke-width="1.5" stroke-dasharray="3 5"/>
+          <line x1="126" y1="100" x2="200" y2="100" stroke="#c9d2e4" stroke-width="1.5"/>
+          <!-- phasors sweep out to +11.18, +21.49, +36.36, +62.14 deg -->
+          <g class="phasor" style="--a0:11.18deg">
+            <line x1="126" y1="100" x2="198.6" y2="85.7" stroke="#1f4fd8" stroke-width="1.5" opacity=".45"/>
+            <circle cx="198.6" cy="85.7" r="5.5" fill="#1f4fd8"/>
+          </g>
+          <g class="phasor" style="--a0:21.49deg;animation-delay:.08s">
+            <line x1="126" y1="100" x2="194.9" y2="72.9" stroke="#1f4fd8" stroke-width="1.5" opacity=".45"/>
+            <circle cx="194.9" cy="72.9" r="5.5" fill="#1f4fd8"/>
+          </g>
+          <g class="phasor" style="--a0:36.36deg;animation-delay:.16s">
+            <line x1="126" y1="100" x2="185.6" y2="56.1" stroke="#1f4fd8" stroke-width="1.5" opacity=".45"/>
+            <circle cx="185.6" cy="56.1" r="5.5" fill="#1f4fd8"/>
+          </g>
+          <g class="phasor" style="--a0:62.14deg;animation-delay:.24s">
+            <line x1="126" y1="100" x2="160.6" y2="34.6" stroke="#1f4fd8" stroke-width="1.5" opacity=".45"/>
+            <circle cx="160.6" cy="34.6" r="5.5" fill="#1f4fd8"/>
+          </g>
+          <g class="fade-in">
+            <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#5b6478">
+              <text x="207" y="86">z<tspan font-size="7" dy="2">1</tspan></text>
+              <text x="203" y="71">z<tspan font-size="7" dy="2">2</tspan></text>
+              <text x="193" y="52">z<tspan font-size="7" dy="2">3</tspan></text>
+              <text x="165" y="27">z<tspan font-size="7" dy="2">4</tspan></text>
+            </g>
+          </g>
+        </svg>
+        <p class="lbl good">Optimal</p>
+      </div>
+    </div>
+    <figcaption>The same phase budget (arg ρ ≈ +131.2°, from the n = 4 example below) distributed two
+    ways. Angles must sum to the same target. The optimal solution allocates the budget among all phase variables.</figcaption>
+  </figure>
+
+  <h3>Solving for the phases</h3>
+  <p>From the constraints, we can find the exact solution by eliminating variables and solving for the roots of a
+    univariate polynomial. However, the polynomial's degree grows like \(2^{n-1}(n-1)\), making this approach
+    numerically fragile past \(n = 4\). Alternatively, since a single scalar parameterizes all
+    variables through our constraints, we can perform a one-dimensional root search on a bounded interval instead which avoids constructing the polynomial directly. This numerical approach is robust even for large \(n\).</p>
+
+  <div class="note">
+    <p><strong>Special case n = 2</strong>: This case admits a closed-form formula
+    via the \(SU(2)\) ↔ quaternion isomorphism and does not require SVD:</p>
+    $$Q \;=\; \frac{M + \mathrm{adj}(M)^{H}}{\sqrt{\;\|M\|_F^2 + 2\,\Re(\det (M))\;}}$$
+  </div>
+</section>
+
+<section id="example2" class="wrap">
+  <h2>Example: n = 2</h2>
+  <p>Take:</p>
+  $$M = \begin{pmatrix} 1+i & 0.5\,i \\ -0.5 & 1-0.5\,i \end{pmatrix},
+  \qquad \det (M) = 1.5 + 0.75\,i,\qquad \|M\|_F^2 = 3.75$$
+  <p>The formula needs only the adjugate and two scalars:
+  \(\;\|M\|_F^2 + 2\,\Re(\det (M)) = 3.75 + 3 = 6.75\), so the denominator is
+  \(\sqrt{6.75} \approx 2.598\), and:</p>
+  $$M + \mathrm{adj}(M)^H = \begin{pmatrix} 2+1.5\,i & 0.5+0.5\,i \\ -0.5+0.5\,i & 2-1.5\,i \end{pmatrix}
+  \;\;\Longrightarrow\;\;
+  Q \approx \begin{pmatrix} 0.770+0.577\,i & 0.192+0.192\,i \\ -0.192+0.192\,i & 0.770-0.577\,i \end{pmatrix}$$
+  <p>One can verify \(Q^H Q = I\) and \(\det (Q) = 1\) to machine precision. The table below compares the methods.</p>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Method</th><th>\(\|M - Q\|_F\)</th></tr></thead>
+    <tbody>
+      <tr><td>Naive I (global phase)</td><td class="num">0.7496</td></tr>
+      <tr><td>Naive II (smallest direction)</td><td class="num">0.7964</td></tr>
+      <tr class="win"><td>Formula (optimal)</td><td class="num">0.7442</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="tbl-cap">Frobenius distance to the target for each method on the \(n=2\) example.</p>
+  <details>
+    <summary>Machine-reproducible version</summary>
+    <pre><code>import numpy as np
+from nearest_su import su2_algebraic, naive_1, naive_2
+
+np.set_printoptions(precision=17, linewidth=200)
+
+M = np.array([[1 + 1j, 0.5j],
+              [-0.5,   1 - 0.5j]], dtype=complex)
+U, s, Vh = np.linalg.svd(M)
+
+Q = su2_algebraic(M)
+print(naive_1(U, s, Vh)); print(naive_2(U, s, Vh)); print(Q)
+print("dist naive I  = %.17g" % np.linalg.norm(M - naive_1(U, s, Vh)))
+print("dist naive II = %.17g" % np.linalg.norm(M - naive_2(U, s, Vh)))
+print("dist optimal      = %.17g" % np.linalg.norm(M - Q))
+
+<span class="c"># --- output ---
+# Q (naive I, global phase) =
+# [[ 0.7733966621339743 +0.5477225575051666j   0.22567410462880788+0.22567410462880794j]
+#  [-0.22567410462880777+0.22567410462880785j  0.7733966621339745 -0.5477225575051666j ]]
+#
+# Q (naive II, smallest direction) =
+# [[ 0.742805187661387  +0.6589112828370659j   0.08389390482432146+0.08389390482432134j]
+#  [-0.08389390482432124+0.0838939048243214j   0.7428051876613871 -0.658911282837066j  ]]
+#
+# Q (optimal) =
+# [[ 0.769800358919501  +0.5773502691896257j   0.19245008972987526+0.19245008972987526j]
+#  [-0.19245008972987526+0.19245008972987526j  0.769800358919501  -0.5773502691896257j ]]
+#
+# det(Q) = (0.9999999999999999+0j)
+#
+# dist naive I  = 0.74959820550144751
+# dist naive II = 0.79640290757543897
+# dist optimal      = 0.74420936388449732</span></code></pre>
+  </details>
+</section>
+
+<section id="example4" class="wrap">
+  <h2>Example: n = 4</h2>
+  <p>Now take a generic 4x4 complex matrix (see code below for exact values). Its SVD gives:</p>
+  $$\sigma \approx (4.151,\; 2.197,\; 1.357,\; 0.910), \qquad
+  \rho \approx -0.658 + 0.753\,i,\quad \arg\rho \approx 131.2^{\circ}$$
+  <p>So the four phases must turn a combined \(\approx 131.2^{\circ}\). The optimal solution
+  distributes that budget to each phase direction according to its singular value as seen below.</p>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>\(i\)</th><th>\(\sigma_i\)</th><th>optimal \(z_i\)</th><th>angle \(\theta_i\)</th><th>\(\sigma_i b_i\)</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td class="num">4.151</td><td class="num">\(0.981 + 0.194\,i\)</td><td class="num">\(11.2^{\circ}\)</td><td class="num">0.805</td></tr>
+      <tr><td>2</td><td class="num">2.197</td><td class="num">\(0.930 + 0.366\,i\)</td><td class="num">\(21.5^{\circ}\)</td><td class="num">0.805</td></tr>
+      <tr><td>3</td><td class="num">1.357</td><td class="num">\(0.805 + 0.593\,i\)</td><td class="num">\(36.4^{\circ}\)</td><td class="num">0.805</td></tr>
+      <tr><td>4</td><td class="num">0.910</td><td class="num">\(0.467 + 0.884\,i\)</td><td class="num">\(62.1^{\circ}\)</td><td class="num">0.805</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="tbl-cap">The optimal phases for the \(n=4\) example. The product \(\sigma_i b_i\) is constant across rows
+  (the stationarity condition), and the angles \(\theta_i\) sum to \(\arg\rho\).</p>
+  <p>The largest singular direction turns \(11^{\circ}\) while the smallest turns
+  \(62^{\circ}\), a far wider swing as the stationarity conditions demand.
+  The resulting \(Q = U Z^* V^H\) beats both heuristics as seen below.</p>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>Method</th><th>\(\|M - Q\|_F\)</th><th>vs optimal</th></tr></thead>
+    <tbody>
+      <tr><td>Naive I (global phase)</td><td class="num">3.7738</td><td class="num">+2.9%</td></tr>
+      <tr><td>Naive II (smallest direction)</td><td class="num">3.8098</td><td class="num">+3.9%</td></tr>
+      <tr class="win"><td>Numerical method (optimal)</td><td class="num">3.6684</td><td class="num">—</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="tbl-cap">Frobenius distance for each method on the \(n=4\) example, along with the gap above
+  the optimum.</p>
+  <details>
+    <summary>Machine-reproducible version</summary>
+    <pre><code>import numpy as np
+from nearest_su import numerical_optimization, naive_1, naive_2
+
+np.set_printoptions(precision=17, linewidth=200)
+
+rng = np.random.default_rng(25700)
+M = rng.uniform(-2, 2, (4, 4)) + 1j * rng.uniform(-2, 2, (4, 4))
+U, s, Vh = np.linalg.svd(M)
+
+Q = numerical_optimization(U, s, Vh)
+z = np.conjugate(np.diag(U.conj().T @ Q @ Vh.conj().T))   <span class="c"># optimal phases</span>
+print(M); print(s); print(z)
+print(naive_1(U, s, Vh)); print(naive_2(U, s, Vh)); print(Q)
+print("dist naive I  = %.17g" % np.linalg.norm(M - naive_1(U, s, Vh)))
+print("dist naive II = %.17g" % np.linalg.norm(M - naive_2(U, s, Vh)))
+print("dist optimal      = %.17g" % np.linalg.norm(M - Q))
+
+<span class="c"># --- output ---
+# M =
+# [[ 0.45498884924202443-1.1900039293679319j   0.6091671486980084 +1.3468813919843337j  -1.8531636123252184 +0.13545389685136122j  1.0757201143245667 +0.2961226353109385j ]
+#  [-0.07482011012837742-1.307769445090607j   -0.7901820249587646 -0.25654678625624383j -0.16510422740063602-0.5794224320640713j   1.3026562810434297 -0.08427470187749009j]
+#  [ 1.667544731870691  -0.21924999117831412j -0.5034752765674573 +0.9930490510348391j   0.10386407601994918-0.00832210384351528j  0.5906807779129064 +1.6190437503094643j ]
+#  [ 0.3937845052712543 +0.2476208476484656j   0.8063561139250499 -0.4125589136091996j  -0.37731510808677315+0.9723043468234125j   0.5850575567148    -1.4937714752836864j ]]
+#
+# sigma =
+# [4.150814314356666  2.1968382136832516 1.3574254845335514 0.9102137453950189]
+#
+# z (optimal phases) =
+# [0.9810285988373613+0.19386306575312998j 0.9304990031498426+0.366294424114193j
+#  0.8053455042794334+0.5928057175305447j  0.4673609027025345+0.8840666188840465j]
+#
+# Q (naive I, global phase) =
+# [[-0.09185857369954226-0.45303949040181246j  0.3116633228891406 +0.12534779632676096j -0.6306769282108035 +0.5090184536037763j   0.01439528811998564+0.12810436171115328j]
+#  [-0.3099812491193992 -0.3258653736038172j  -0.7208733024231161 +0.0097196507405657j  -0.13512407715151795-0.00679068512153812j  0.4015119315235699 -0.31377401571391356j]
+#  [ 0.4148678504560504 -0.2828378254873487j   0.01924612611238722+0.5614641387961709j   0.44896646218399666+0.17154427421365512j  0.4092885447965821 +0.18373786633107336j]
+#  [ 0.5747811826499913 -0.03942878717147898j  0.01215276225080396-0.22724663080012908j  0.00505932250162709+0.3062976943387837j  -0.112069361439534  -0.7140586991966643j ]]
+#
+# Q (naive II, smallest direction) =
+# [[ 0.12694238752285303-0.2772646237732855j  -0.17866629094541778+0.6846315569933068j  -0.40567544260700766+0.4476605845675504j   0.20335602658827368+0.00645825387080649j]
+#  [ 0.08566669237199505-0.34017785300019926j -0.24627322719850392+0.204596595702829j    0.45961549244465255-0.43546083775614797j  0.46559954181302576-0.3959475991685478j ]
+#  [ 0.6603752438955333 -0.18050321560615407j  0.471553597973399  +0.21551219335485208j  0.02283490920683146-0.35030063035515147j -0.16355363877944507+0.3354594874135738j ]
+#  [ 0.5072108447314455 +0.24085366966820215j  0.2010772640567238 -0.2959853896292171j  -0.27025948940979994+0.19463488344609037j  0.23713613029405167-0.6241240085421489j ]]
+#
+# Q (optimal, nearest SU(4) matrix) =
+# [[-0.05796055089314324-0.40482036762660656j  0.09520479395346185+0.30621250325882715j -0.6058137041106632 +0.5172299461170231j   0.12523971375372933+0.2823277304861255j ]
+#  [-0.1673821740259374 -0.36297690474096356j -0.6994864961464221 +0.1695347920498388j   0.11671756303656977-0.0716881873137448j   0.44841338684746634-0.3199544017682789j ]
+#  [ 0.5433946109292854 -0.17727519404963651j  0.1897776890501084 +0.5589252335744659j   0.4739953417352535 -0.06831350473558737j  0.18594375659896045+0.24691985514755677j]
+#  [ 0.5797360553321937 -0.10096498142120551j  0.09488983951496449-0.14740921415913288j -0.11985954419830729+0.3209300917311547j  -0.08296745262406419-0.7062100171361025j ]]
+#
+# det(Q) = (0.9999999999999987+7.355227538141652e-16j)
+#
+# dist naive I  = 3.7737674428148993
+# dist naive II = 3.8097777190860551
+# dist optimal      = 3.668353080346157</span></code></pre>
+  </details>
+</section>
+
+<section id="references" class="wrap">
+  <h2>References</h2>
+  <p>See the <a href="https://www.algorhythmandflow.com/research/nearest_su.pdf">paper</a> for complete
+  derivations and discussion of solutions. See <a href="https://github.com/akschion/Nearest_SU">github</a> for reference code
+  implementations for all methods.</p>
+  <p>If you found this work useful, please cite:</p>
+  <pre><code>@misc{nearest_su,
+  title  = {On the Nearest Special Unitary Matrix},
+  author = {Chandrasekhar, Akshay},
+  year   = {2026},
+  url    = {https://www.algorhythmandflow.com/research/nearest_su.pdf}
+}</code></pre>
+</section>
+
+</main>
+
+<script>
+(function(){
+  var figs = document.querySelectorAll('.anim-on-view');
+  if (!('IntersectionObserver' in window)) {
+    for (var i = 0; i < figs.length; i++) figs[i].className += ' anim';
+    return;
+  }
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (e.isIntersecting) { e.target.classList.add('anim'); io.unobserve(e.target); }
+    });
+  }, {threshold: 0.3});
+  figs.forEach(function(f){ io.observe(f); });
+})();
+</script>
+</body>
+</html>
